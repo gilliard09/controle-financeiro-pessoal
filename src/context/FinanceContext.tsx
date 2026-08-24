@@ -9,11 +9,42 @@ import {
   IncomeSource,
   Investment,
   Transaction,
-  TransactionType,
   TransactionStatus,
 } from '../types';
 import { useAuth } from './AuthContext';
-import { getInitialSeedData, getBlankUserData, DEFAULT_CATEGORIES, DEFAULT_ACCOUNTS, DEFAULT_BLANK_ACCOUNTS } from '../utils/defaultData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import {
+  getTransactions,
+  createTransaction,
+  updateTransaction as apiUpdateTransaction,
+  deleteTransaction as apiDeleteTransaction,
+  getInvestments,
+  createInvestment,
+  updateInvestment as apiUpdateInvestment,
+  deleteInvestment as apiDeleteInvestment,
+  getRecurringExpenses,
+  createRecurringExpense,
+  updateRecurringExpense as apiUpdateRecurringExpense,
+  deleteRecurringExpense as apiDeleteRecurringExpense,
+  getIncomeSources,
+  createIncomeSource,
+  updateIncomeSource as apiUpdateIncomeSource,
+  deleteIncomeSource as apiDeleteIncomeSource,
+  getGoals,
+  createGoal,
+  updateGoal as apiUpdateGoal,
+  deleteGoal as apiDeleteGoal,
+  getCategories,
+  createCategory,
+  deleteCategory as apiDeleteCategory,
+  migrateLocalDataToSupabase,
+} from '../lib/supabaseService';
+import {
+  getInitialSeedData,
+  DEFAULT_CATEGORIES,
+  DEFAULT_ACCOUNTS,
+  DEFAULT_BLANK_ACCOUNTS,
+} from '../utils/defaultData';
 import {
   calculateEmergencyReserve,
   calculateEssentialMonthlyExpenses,
@@ -38,6 +69,12 @@ interface CelebrationState {
   releasedAmount?: number;
 }
 
+interface ToastMessage {
+  id: string;
+  type: 'error' | 'success' | 'info';
+  text: string;
+}
+
 interface FinanceContextType {
   // Data
   accounts: Account[];
@@ -48,6 +85,12 @@ interface FinanceContextType {
   investments: Investment[];
   goals: FinancialGoal[];
   alerts: AlertNotification[];
+
+  // Loading & Sync Status
+  isDataLoading: boolean;
+  toast: ToastMessage | null;
+  dismissToast: () => void;
+  showToast: (text: string, type?: 'error' | 'success' | 'info') => void;
 
   // Selected Date Filter
   selectedYear: number;
@@ -74,38 +117,40 @@ interface FinanceContextType {
   financialFreedomLevels: ReturnType<typeof getFinancialFreedomLevels>;
 
   // CRUD Actions - Transactions
-  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Transaction;
-  updateTransaction: (id: string, updates: Partial<Transaction>) => void;
-  deleteTransaction: (id: string) => void;
-  toggleTransactionStatus: (id: string) => void;
+  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Promise<Transaction | null>;
+  updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+  toggleTransactionStatus: (id: string) => Promise<void>;
 
   // CRUD Actions - Fixed Expenses & Debts
-  addFixedExpense: (exp: Omit<FixedExpense, 'id'>) => FixedExpense;
-  updateFixedExpense: (id: string, updates: Partial<FixedExpense>) => void;
-  deleteFixedExpense: (id: string) => void;
-  payDebtInstallment: (id: string) => void;
+  addFixedExpense: (exp: Omit<FixedExpense, 'id'>) => Promise<FixedExpense | null>;
+  updateFixedExpense: (id: string, updates: Partial<FixedExpense>) => Promise<void>;
+  deleteFixedExpense: (id: string) => Promise<void>;
+  payDebtInstallment: (id: string) => Promise<void>;
 
   // CRUD Actions - Income Sources
-  addIncomeSource: (src: Omit<IncomeSource, 'id'>) => IncomeSource;
-  updateIncomeSource: (id: string, updates: Partial<IncomeSource>) => void;
-  deleteIncomeSource: (id: string) => void;
+  addIncomeSource: (src: Omit<IncomeSource, 'id'>) => Promise<IncomeSource | null>;
+  updateIncomeSource: (id: string, updates: Partial<IncomeSource>) => Promise<void>;
+  deleteIncomeSource: (id: string) => Promise<void>;
 
   // CRUD Actions - Investments
-  addInvestment: (inv: Omit<Investment, 'id' | 'updatedAt'>) => Investment;
-  updateInvestment: (id: string, updates: Partial<Investment>) => void;
-  deleteInvestment: (id: string) => void;
-  updateInvestmentBalance: (id: string, newBalance: number) => void;
+  addInvestment: (inv: Omit<Investment, 'id' | 'updatedAt'>) => Promise<Investment | null>;
+  updateInvestment: (id: string, updates: Partial<Investment>) => Promise<void>;
+  deleteInvestment: (id: string) => Promise<void>;
+  updateInvestmentBalance: (id: string, newBalance: number) => Promise<void>;
 
   // CRUD Actions - Goals
-  addGoal: (goal: Omit<FinancialGoal, 'id'>) => FinancialGoal;
-  updateGoal: (id: string, updates: Partial<FinancialGoal>) => void;
-  deleteGoal: (id: string) => void;
+  addGoal: (goal: Omit<FinancialGoal, 'id'>) => Promise<FinancialGoal | null>;
+  updateGoal: (id: string, updates: Partial<FinancialGoal>) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
 
   // CRUD Actions - Categories & Accounts
-  addCategory: (cat: Omit<Category, 'id'>) => Category;
+  addCategory: (cat: Omit<Category, 'id'>) => Promise<Category | null>;
+  deleteCategory: (id: string) => Promise<void>;
   addAccount: (acc: Omit<Account, 'id'>) => Account;
 
-  // Celebration & Helpers
+  // Cloud Migration & Helpers
+  migrateFromDeviceToCloud: () => Promise<{ success: boolean; count: number; message: string }>;
   celebration: CelebrationState | null;
   closeCelebration: () => void;
   triggerConfetti: () => void;
@@ -114,6 +159,7 @@ interface FinanceContextType {
   exportDataJson: () => string;
   importDataJson: (jsonString: string) => boolean;
   resetToDefaultData: () => void;
+  refreshData: () => Promise<void>;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -139,58 +185,130 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [alerts, setAlerts] = useState<AlertNotification[]>([]);
   const [celebration, setCelebration] = useState<CelebrationState | null>(null);
 
-  // Load user data on user switch
-  useEffect(() => {
-    try {
-      const storedTx = localStorage.getItem(`${STORAGE_PREFIX}transactions`);
-      const storedExp = localStorage.getItem(`${STORAGE_PREFIX}fixed_expenses`);
-      const storedInc = localStorage.getItem(`${STORAGE_PREFIX}income_sources`);
-      const storedInv = localStorage.getItem(`${STORAGE_PREFIX}investments`);
-      const storedGoals = localStorage.getItem(`${STORAGE_PREFIX}goals`);
-      const storedAcc = localStorage.getItem(`${STORAGE_PREFIX}accounts`);
-      const storedCat = localStorage.getItem(`${STORAGE_PREFIX}categories`);
+  const [isDataLoading, setIsDataLoading] = useState<boolean>(true);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
-      if (storedTx && storedExp) {
-        setTransactions(JSON.parse(storedTx));
-        setFixedExpenses(JSON.parse(storedExp));
-        setIncomeSources(storedInc ? JSON.parse(storedInc) : []);
-        setInvestments(storedInv ? JSON.parse(storedInv) : []);
-        setGoals(storedGoals ? JSON.parse(storedGoals) : []);
-        if (storedAcc) setAccounts(JSON.parse(storedAcc));
-        if (storedCat) setCategories(JSON.parse(storedCat));
+  const showToast = useCallback((text: string, type: 'error' | 'success' | 'info' = 'error') => {
+    const id = `toast-${Date.now()}`;
+    setToast({ id, type, text });
+    setTimeout(() => {
+      setToast((prev) => (prev?.id === id ? null : prev));
+    }, 4500);
+  }, []);
+
+  const dismissToast = () => setToast(null);
+
+  // Fetch all data from Supabase
+  const loadSupabaseData = useCallback(async (isInitial = false) => {
+    if (isInitial) setIsDataLoading(true);
+
+    try {
+      if (isSupabaseConfigured() && user) {
+        const [txList, invList, expList, incList, goalList, catList] = await Promise.all([
+          getTransactions().catch((e) => {
+            console.error('Err tx:', e);
+            return [] as Transaction[];
+          }),
+          getInvestments().catch((e) => {
+            console.error('Err inv:', e);
+            return [] as Investment[];
+          }),
+          getRecurringExpenses().catch((e) => {
+            console.error('Err exp:', e);
+            return [] as FixedExpense[];
+          }),
+          getIncomeSources().catch((e) => {
+            console.error('Err inc:', e);
+            return [] as IncomeSource[];
+          }),
+          getGoals().catch((e) => {
+            console.error('Err goals:', e);
+            return [] as FinancialGoal[];
+          }),
+          getCategories().catch((e) => {
+            console.error('Err cat:', e);
+            return [] as Category[];
+          }),
+        ]);
+
+        setTransactions(txList);
+        setInvestments(invList);
+        setFixedExpenses(expList);
+        setIncomeSources(incList);
+        setGoals(goalList);
+
+        if (catList.length > 0) {
+          // Merge custom categories with default categories
+          const catMap = new Map<string, Category>();
+          DEFAULT_CATEGORIES.forEach((c) => catMap.set(c.id, c));
+          catList.forEach((c) => catMap.set(c.id, c));
+          setCategories(Array.from(catMap.values()));
+        } else {
+          setCategories(DEFAULT_CATEGORIES);
+        }
+
+        // Cache locally for backup/offline speed
+        localStorage.setItem(`${STORAGE_PREFIX}transactions`, JSON.stringify(txList));
+        localStorage.setItem(`${STORAGE_PREFIX}investments`, JSON.stringify(invList));
+        localStorage.setItem(`${STORAGE_PREFIX}fixed_expenses`, JSON.stringify(expList));
+        localStorage.setItem(`${STORAGE_PREFIX}income_sources`, JSON.stringify(incList));
+        localStorage.setItem(`${STORAGE_PREFIX}goals`, JSON.stringify(goalList));
       } else {
-        // Initialize with clean blank state for manual entry
-        const blank = getBlankUserData(user?.name || 'Jeferson Rocha', user?.email || 'jefersonrocha998@gmail.com');
-        setAccounts(blank.accounts);
-        setCategories(blank.categories);
-        setTransactions(blank.transactions);
-        setFixedExpenses(blank.fixedExpenses);
-        setIncomeSources(blank.incomeSources);
-        setInvestments(blank.investments);
-        setGoals(blank.goals);
+        // Local mode fallback
+        const storedTx = localStorage.getItem(`${STORAGE_PREFIX}transactions`);
+        const storedExp = localStorage.getItem(`${STORAGE_PREFIX}fixed_expenses`);
+        const storedInc = localStorage.getItem(`${STORAGE_PREFIX}income_sources`);
+        const storedInv = localStorage.getItem(`${STORAGE_PREFIX}investments`);
+        const storedGoals = localStorage.getItem(`${STORAGE_PREFIX}goals`);
 
-        // Save into local storage
-        localStorage.setItem(`${STORAGE_PREFIX}accounts`, JSON.stringify(blank.accounts));
-        localStorage.setItem(`${STORAGE_PREFIX}categories`, JSON.stringify(blank.categories));
-        localStorage.setItem(`${STORAGE_PREFIX}transactions`, JSON.stringify(blank.transactions));
-        localStorage.setItem(`${STORAGE_PREFIX}fixed_expenses`, JSON.stringify(blank.fixedExpenses));
-        localStorage.setItem(`${STORAGE_PREFIX}income_sources`, JSON.stringify(blank.incomeSources));
-        localStorage.setItem(`${STORAGE_PREFIX}investments`, JSON.stringify(blank.investments));
-        localStorage.setItem(`${STORAGE_PREFIX}goals`, JSON.stringify(blank.goals));
+        if (storedTx && storedExp) {
+          setTransactions(JSON.parse(storedTx));
+          setFixedExpenses(JSON.parse(storedExp));
+          setIncomeSources(storedInc ? JSON.parse(storedInc) : []);
+          setInvestments(storedInv ? JSON.parse(storedInv) : []);
+          setGoals(storedGoals ? JSON.parse(storedGoals) : []);
+        } else {
+          setTransactions([]);
+          setFixedExpenses([]);
+          setIncomeSources([]);
+          setInvestments([]);
+          setGoals([]);
+        }
       }
-    } catch (e) {
-      console.error('Failed to load user financial data:', e);
+    } catch (err: any) {
+      console.error('[FinanceContext] Error loading data:', err);
+      showToast('Falha ao sincronizar dados com o Supabase.', 'error');
+    } finally {
+      setIsDataLoading(false);
     }
-  }, [userId, user?.name, user?.email]);
+  }, [user, STORAGE_PREFIX, showToast]);
 
-  // Persist helper
-  const saveState = useCallback((key: string, data: any) => {
-    try {
-      localStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(data));
-    } catch (e) {
-      console.error(`Failed to save ${key}:`, e);
-    }
-  }, [STORAGE_PREFIX]);
+  // Initial load
+  useEffect(() => {
+    loadSupabaseData(true);
+  }, [loadSupabaseData]);
+
+  // Setup Supabase Realtime subscriptions
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user?.id) return;
+
+    const channelName = `realtime-user-finance-${user.id}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', filter: `user_id=eq.${user.id}` },
+        (_payload) => {
+          // Refresh data quietly in background when any change occurs in another device
+          loadSupabaseData(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, loadSupabaseData]);
 
   const triggerConfetti = useCallback(() => {
     try {
@@ -198,7 +316,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         particleCount: 80,
         spread: 70,
         origin: { y: 0.6 },
-        colors: ['#10B981', '#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899'],
+        colors: ['#f74603', '#10B981', '#3B82F6', '#F59E0B', '#8B5CF6'],
       });
     } catch (e) {
       console.log('Confetti triggered');
@@ -249,12 +367,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [emergencyReserve, essentialMonthlyExpenses, user?.emergencyGoal]
   );
 
-  // Generate dynamic system alerts based on current state
+  // Dynamic system alerts
   useEffect(() => {
     const newAlerts: AlertNotification[] = [];
     const today = new Date().getDate();
 
-    // 1. Check fixed expenses due soon
     fixedExpenses.forEach((exp) => {
       if (!exp.active || exp.completed) return;
       const daysUntilDue = exp.dueDay - today;
@@ -270,7 +387,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     });
 
-    // 2. Check leisure budget percentage
     if (budget503020.leisure.percentUsed >= 85) {
       newAlerts.push({
         id: 'alert-leisure-85',
@@ -282,7 +398,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     }
 
-    // 3. Check milestone achievements
     if (emergencyReserve >= 10000 && emergencyReserve < 12000) {
       newAlerts.push({
         id: 'alert-milestone-10k',
@@ -294,99 +409,139 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     }
 
-    // 4. Check ending debt
-    const closingDebt = fixedExpenses.find(
-      (e) => e.isDebt && e.active && !e.completed && (e.currentInstallment || 0) >= (e.totalInstallments || 1) - 1
-    );
-    if (closingDebt) {
-      newAlerts.push({
-        id: `alert-debt-close-${closingDebt.id}`,
-        type: 'info',
-        title: 'Quitação próxima!',
-        message: `${closingDebt.name} está em sua última parcela este mês!`,
-        date: new Date().toISOString(),
-        read: false,
-      });
-    }
-
     setAlerts(newAlerts);
   }, [fixedExpenses, budget503020.leisure.percentUsed, emergencyReserve]);
 
-  // Transaction CRUD
-  const addTransaction = (txData: Omit<Transaction, 'id' | 'createdAt'>): Transaction => {
-    const newTx: Transaction = {
+  // ==========================================
+  // TRANSACTION CRUD
+  // ==========================================
+  const addTransaction = async (txData: Omit<Transaction, 'id' | 'createdAt'>): Promise<Transaction | null> => {
+    const tempId = `tx-temp-${Date.now()}`;
+    const optimisticTx: Transaction = {
       ...txData,
-      id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: tempId,
       createdAt: new Date().toISOString(),
     };
 
-    const nextList = [newTx, ...transactions];
-    setTransactions(nextList);
-    saveState('transactions', nextList);
+    const previousList = transactions;
+    setTransactions([optimisticTx, ...previousList]);
 
-    // If it's an investment transaction with an linked investment, update the investment balance
-    if (newTx.type === 'investment' && newTx.investmentId && newTx.status === 'paid') {
-      const inv = investments.find((i) => i.id === newTx.investmentId);
-      if (inv) {
-        updateInvestment(inv.id, {
-          currentBalance: inv.currentBalance + newTx.amount,
-          investedAmount: inv.investedAmount + newTx.amount,
-        });
+    try {
+      let created: Transaction;
+      if (isSupabaseConfigured() && user) {
+        created = await createTransaction(txData);
+        setTransactions((prev) => prev.map((t) => (t.id === tempId ? created : t)));
+      } else {
+        created = optimisticTx;
       }
+
+      if (created.type === 'investment') {
+        triggerConfetti();
+      }
+
+      return created;
+    } catch (err: any) {
+      console.error('[Supabase Error - addTransaction]:', err);
+      setTransactions(previousList);
+      showToast('Não foi possível salvar esta movimentação. Tente novamente.', 'error');
+      return null;
     }
+  };
 
-    // Trigger celebratory confetti if large milestone or investment
-    if (newTx.type === 'investment') {
-      triggerConfetti();
+  const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
+    const previousList = transactions;
+    setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('tx-temp-')) {
+        await apiUpdateTransaction(id, updates);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - updateTransaction]:', err);
+      setTransactions(previousList);
+      showToast('Não foi possível atualizar a transação.', 'error');
     }
-
-    return newTx;
   };
 
-  const updateTransaction = (id: string, updates: Partial<Transaction>) => {
-    const nextList = transactions.map((t) => (t.id === id ? { ...t, ...updates } : t));
-    setTransactions(nextList);
-    saveState('transactions', nextList);
+  const deleteTransaction = async (id: string) => {
+    const previousList = transactions;
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('tx-temp-')) {
+        await apiDeleteTransaction(id);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - deleteTransaction]:', err);
+      setTransactions(previousList);
+      showToast('Não foi possível remover a transação.', 'error');
+    }
   };
 
-  const deleteTransaction = (id: string) => {
-    const nextList = transactions.filter((t) => t.id !== id);
-    setTransactions(nextList);
-    saveState('transactions', nextList);
-  };
-
-  const toggleTransactionStatus = (id: string) => {
+  const toggleTransactionStatus = async (id: string) => {
     const tx = transactions.find((t) => t.id === id);
     if (!tx) return;
     const newStatus: TransactionStatus = tx.status === 'paid' ? 'pending' : 'paid';
-    updateTransaction(id, { status: newStatus });
+    await updateTransaction(id, { status: newStatus });
   };
 
-  // Fixed Expense & Debt actions
-  const addFixedExpense = (expData: Omit<FixedExpense, 'id'>): FixedExpense => {
-    const newExp: FixedExpense = {
-      ...expData,
-      id: `exp-${Date.now()}`,
-    };
-    const nextList = [...fixedExpenses, newExp];
-    setFixedExpenses(nextList);
-    saveState('fixed_expenses', nextList);
-    return newExp;
+  // ==========================================
+  // FIXED EXPENSE & DEBTS CRUD
+  // ==========================================
+  const addFixedExpense = async (expData: Omit<FixedExpense, 'id'>): Promise<FixedExpense | null> => {
+    const tempId = `exp-temp-${Date.now()}`;
+    const optimisticExp: FixedExpense = { ...expData, id: tempId };
+    const previousList = fixedExpenses;
+    setFixedExpenses([...previousList, optimisticExp]);
+
+    try {
+      let created: FixedExpense;
+      if (isSupabaseConfigured() && user) {
+        created = await createRecurringExpense(expData);
+        setFixedExpenses((prev) => prev.map((e) => (e.id === tempId ? created : e)));
+      } else {
+        created = optimisticExp;
+      }
+      return created;
+    } catch (err: any) {
+      console.error('[Supabase Error - addFixedExpense]:', err);
+      setFixedExpenses(previousList);
+      showToast('Não foi possível salvar a despesa fixa. Tente novamente.', 'error');
+      return null;
+    }
   };
 
-  const updateFixedExpense = (id: string, updates: Partial<FixedExpense>) => {
-    const nextList = fixedExpenses.map((e) => (e.id === id ? { ...e, ...updates } : e));
-    setFixedExpenses(nextList);
-    saveState('fixed_expenses', nextList);
+  const updateFixedExpense = async (id: string, updates: Partial<FixedExpense>) => {
+    const previousList = fixedExpenses;
+    setFixedExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, ...updates } : e)));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('exp-temp-')) {
+        await apiUpdateRecurringExpense(id, updates);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - updateFixedExpense]:', err);
+      setFixedExpenses(previousList);
+      showToast('Não foi possível atualizar a despesa fixa.', 'error');
+    }
   };
 
-  const deleteFixedExpense = (id: string) => {
-    const nextList = fixedExpenses.filter((e) => e.id !== id);
-    setFixedExpenses(nextList);
-    saveState('fixed_expenses', nextList);
+  const deleteFixedExpense = async (id: string) => {
+    const previousList = fixedExpenses;
+    setFixedExpenses((prev) => prev.filter((e) => e.id !== id));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('exp-temp-')) {
+        await apiDeleteRecurringExpense(id);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - deleteFixedExpense]:', err);
+      setFixedExpenses(previousList);
+      showToast('Não foi possível remover a despesa fixa.', 'error');
+    }
   };
 
-  const payDebtInstallment = (id: string) => {
+  const payDebtInstallment = async (id: string) => {
     const debt = fixedExpenses.find((e) => e.id === id);
     if (!debt || !debt.isDebt) return;
 
@@ -400,10 +555,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       active: !isNowCompleted,
     };
 
-    updateFixedExpense(id, updates);
+    await updateFixedExpense(id, updates);
 
-    // Register transaction for this payment
-    addTransaction({
+    await addTransaction({
       type: 'expense',
       description: `${debt.name} (Parc ${current}/${total})`,
       amount: debt.amount,
@@ -425,60 +579,129 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // Income Sources
-  const addIncomeSource = (srcData: Omit<IncomeSource, 'id'>): IncomeSource => {
-    const newSrc: IncomeSource = { ...srcData, id: `inc-${Date.now()}` };
-    const next = [...incomeSources, newSrc];
-    setIncomeSources(next);
-    saveState('income_sources', next);
-    return newSrc;
+  // ==========================================
+  // INCOME SOURCES CRUD
+  // ==========================================
+  const addIncomeSource = async (srcData: Omit<IncomeSource, 'id'>): Promise<IncomeSource | null> => {
+    const tempId = `inc-temp-${Date.now()}`;
+    const optimisticSrc: IncomeSource = { ...srcData, id: tempId };
+    const previousList = incomeSources;
+    setIncomeSources([...previousList, optimisticSrc]);
+
+    try {
+      let created: IncomeSource;
+      if (isSupabaseConfigured() && user) {
+        created = await createIncomeSource(srcData);
+        setIncomeSources((prev) => prev.map((s) => (s.id === tempId ? created : s)));
+      } else {
+        created = optimisticSrc;
+      }
+      return created;
+    } catch (err: any) {
+      console.error('[Supabase Error - addIncomeSource]:', err);
+      setIncomeSources(previousList);
+      showToast('Não foi possível salvar a fonte de renda.', 'error');
+      return null;
+    }
   };
 
-  const updateIncomeSource = (id: string, updates: Partial<IncomeSource>) => {
-    const next = incomeSources.map((s) => (s.id === id ? { ...s, ...updates } : s));
-    setIncomeSources(next);
-    saveState('income_sources', next);
+  const updateIncomeSource = async (id: string, updates: Partial<IncomeSource>) => {
+    const previousList = incomeSources;
+    setIncomeSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('inc-temp-')) {
+        await apiUpdateIncomeSource(id, updates);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - updateIncomeSource]:', err);
+      setIncomeSources(previousList);
+      showToast('Não foi possível atualizar a fonte de renda.', 'error');
+    }
   };
 
-  const deleteIncomeSource = (id: string) => {
-    const next = incomeSources.filter((s) => s.id !== id);
-    setIncomeSources(next);
-    saveState('income_sources', next);
+  const deleteIncomeSource = async (id: string) => {
+    const previousList = incomeSources;
+    setIncomeSources((prev) => prev.filter((s) => s.id !== id));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('inc-temp-')) {
+        await apiDeleteIncomeSource(id);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - deleteIncomeSource]:', err);
+      setIncomeSources(previousList);
+      showToast('Não foi possível remover a fonte de renda.', 'error');
+    }
   };
 
-  // Investments
-  const addInvestment = (invData: Omit<Investment, 'id' | 'updatedAt'>): Investment => {
-    const newInv: Investment = {
+  // ==========================================
+  // INVESTMENTS CRUD
+  // ==========================================
+  const addInvestment = async (invData: Omit<Investment, 'id' | 'updatedAt'>): Promise<Investment | null> => {
+    const tempId = `inv-temp-${Date.now()}`;
+    const optimisticInv: Investment = {
       ...invData,
-      id: `inv-${Date.now()}`,
+      id: tempId,
       updatedAt: new Date().toISOString(),
     };
-    const next = [...investments, newInv];
-    setInvestments(next);
-    saveState('investments', next);
-    triggerConfetti();
-    return newInv;
+    const previousList = investments;
+    setInvestments([...previousList, optimisticInv]);
+
+    try {
+      let created: Investment;
+      if (isSupabaseConfigured() && user) {
+        created = await createInvestment(invData);
+        setInvestments((prev) => prev.map((i) => (i.id === tempId ? created : i)));
+      } else {
+        created = optimisticInv;
+      }
+      triggerConfetti();
+      return created;
+    } catch (err: any) {
+      console.error('[Supabase Error - addInvestment]:', err);
+      setInvestments(previousList);
+      showToast('Não foi possível salvar o investimento.', 'error');
+      return null;
+    }
   };
 
-  const updateInvestment = (id: string, updates: Partial<Investment>) => {
-    const next = investments.map((i) => (i.id === id ? { ...i, ...updates, updatedAt: new Date().toISOString() } : i));
-    setInvestments(next);
-    saveState('investments', next);
+  const updateInvestment = async (id: string, updates: Partial<Investment>) => {
+    const previousList = investments;
+    setInvestments((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates, updatedAt: new Date().toISOString() } : i)));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('inv-temp-')) {
+        await apiUpdateInvestment(id, updates);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - updateInvestment]:', err);
+      setInvestments(previousList);
+      showToast('Não foi possível atualizar o investimento.', 'error');
+    }
   };
 
-  const deleteInvestment = (id: string) => {
-    const next = investments.filter((i) => i.id !== id);
-    setInvestments(next);
-    saveState('investments', next);
+  const deleteInvestment = async (id: string) => {
+    const previousList = investments;
+    setInvestments((prev) => prev.filter((i) => i.id !== id));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('inv-temp-')) {
+        await apiDeleteInvestment(id);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - deleteInvestment]:', err);
+      setInvestments(previousList);
+      showToast('Não foi possível remover o investimento.', 'error');
+    }
   };
 
-  const updateInvestmentBalance = (id: string, newBalance: number) => {
+  const updateInvestmentBalance = async (id: string, newBalance: number) => {
     const inv = investments.find((i) => i.id === id);
     if (!inv) return;
     const diff = newBalance - inv.currentBalance;
-    updateInvestment(id, { currentBalance: newBalance });
+    await updateInvestment(id, { currentBalance: newBalance });
 
-    // If reserve crossed a milestone, celebrate
     if (inv.isEmergencyReserve && diff > 0) {
       const newTotalReserve = emergencyReserve + diff;
       if (newTotalReserve >= 40000 && emergencyReserve < 40000) {
@@ -497,47 +720,162 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // Goals
-  const addGoal = (goalData: Omit<FinancialGoal, 'id'>): FinancialGoal => {
-    const newGoal: FinancialGoal = { ...goalData, id: `goal-${Date.now()}` };
-    const next = [...goals, newGoal];
-    setGoals(next);
-    saveState('goals', next);
-    return newGoal;
+  // ==========================================
+  // GOALS CRUD
+  // ==========================================
+  const addGoal = async (goalData: Omit<FinancialGoal, 'id'>): Promise<FinancialGoal | null> => {
+    const tempId = `goal-temp-${Date.now()}`;
+    const optimisticGoal: FinancialGoal = { ...goalData, id: tempId };
+    const previousList = goals;
+    setGoals([...previousList, optimisticGoal]);
+
+    try {
+      let created: FinancialGoal;
+      if (isSupabaseConfigured() && user) {
+        created = await createGoal(goalData);
+        setGoals((prev) => prev.map((g) => (g.id === tempId ? created : g)));
+      } else {
+        created = optimisticGoal;
+      }
+      return created;
+    } catch (err: any) {
+      console.error('[Supabase Error - addGoal]:', err);
+      setGoals(previousList);
+      showToast('Não foi possível salvar a meta.', 'error');
+      return null;
+    }
   };
 
-  const updateGoal = (id: string, updates: Partial<FinancialGoal>) => {
-    const next = goals.map((g) => (g.id === id ? { ...g, ...updates } : g));
-    setGoals(next);
-    saveState('goals', next);
+  const updateGoal = async (id: string, updates: Partial<FinancialGoal>) => {
+    const previousList = goals;
+    setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, ...updates } : g)));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('goal-temp-')) {
+        await apiUpdateGoal(id, updates);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - updateGoal]:', err);
+      setGoals(previousList);
+      showToast('Não foi possível atualizar a meta.', 'error');
+    }
   };
 
-  const deleteGoal = (id: string) => {
-    const next = goals.filter((g) => g.id !== id);
-    setGoals(next);
-    saveState('goals', next);
+  const deleteGoal = async (id: string) => {
+    const previousList = goals;
+    setGoals((prev) => prev.filter((g) => g.id !== id));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('goal-temp-')) {
+        await apiDeleteGoal(id);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - deleteGoal]:', err);
+      setGoals(previousList);
+      showToast('Não foi possível remover a meta.', 'error');
+    }
   };
 
-  // Categories & Accounts
-  const addCategory = (catData: Omit<Category, 'id'>): Category => {
-    const newCat: Category = { ...catData, id: `cat-${Date.now()}` };
-    const next = [...categories, newCat];
-    setCategories(next);
-    saveState('categories', next);
-    return newCat;
+  // ==========================================
+  // CATEGORIES & ACCOUNTS
+  // ==========================================
+  const addCategory = async (catData: Omit<Category, 'id'>): Promise<Category | null> => {
+    const tempId = `cat-temp-${Date.now()}`;
+    const optimisticCat: Category = { ...catData, id: tempId };
+    const previousList = categories;
+    setCategories([...previousList, optimisticCat]);
+
+    try {
+      let created: Category;
+      if (isSupabaseConfigured() && user) {
+        created = await createCategory(catData);
+        setCategories((prev) => prev.map((c) => (c.id === tempId ? created : c)));
+      } else {
+        created = optimisticCat;
+      }
+      return created;
+    } catch (err: any) {
+      console.error('[Supabase Error - addCategory]:', err);
+      setCategories(previousList);
+      showToast('Não foi possível criar a categoria.', 'error');
+      return null;
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    const previousList = categories;
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+
+    try {
+      if (isSupabaseConfigured() && user && !id.startsWith('cat-temp-') && !id.startsWith('cat-')) {
+        await apiDeleteCategory(id);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Error - deleteCategory]:', err);
+      setCategories(previousList);
+      showToast('Não foi possível remover a categoria.', 'error');
+    }
   };
 
   const addAccount = (accData: Omit<Account, 'id'>): Account => {
     const newAcc: Account = { ...accData, id: `acc-${Date.now()}` };
-    const next = [...accounts, newAcc];
-    setAccounts(next);
-    saveState('accounts', next);
+    setAccounts([...accounts, newAcc]);
     return newAcc;
   };
 
   const goToCurrentMonth = () => {
     setSelectedYear(currentYear);
     setSelectedMonth(currentMonth + 1);
+  };
+
+  // 1-Click Device to Cloud Migration
+  const migrateFromDeviceToCloud = async (): Promise<{ success: boolean; count: number; message: string }> => {
+    if (!isSupabaseConfigured() || !user) {
+      return {
+        success: false,
+        count: 0,
+        message: 'Configure as credenciais do Supabase para migrar seus dados para a nuvem.',
+      };
+    }
+
+    try {
+      const localData = {
+        transactions,
+        investments,
+        fixedExpenses,
+        incomeSources,
+        goals,
+      };
+
+      const result = await migrateLocalDataToSupabase(localData);
+      if (result.success) {
+        await loadSupabaseData(false);
+        showCelebration(
+          '☁️ Dados Sincronizados com Sucesso!',
+          `${result.count} registros deste dispositivo foram salvos no Supabase. Agora você pode acessar de qualquer celular ou computador!`,
+          'Multi-Dispositivo Ativo'
+        );
+        return {
+          success: true,
+          count: result.count,
+          message: `${result.count} registros migrados com sucesso para o Supabase.`,
+        };
+      } else {
+        showToast(result.error || 'Erro na migração.', 'error');
+        return {
+          success: false,
+          count: 0,
+          message: result.error || 'Erro ao sincronizar dados.',
+        };
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Falha na migração.', 'error');
+      return {
+        success: false,
+        count: 0,
+        message: err.message || 'Erro inesperado.',
+      };
+    }
   };
 
   const resetAllUserData = () => {
@@ -548,14 +886,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setGoals([]);
     setAccounts(DEFAULT_BLANK_ACCOUNTS);
     setCategories(DEFAULT_CATEGORIES);
-
-    saveState('transactions', []);
-    saveState('fixed_expenses', []);
-    saveState('income_sources', []);
-    saveState('investments', []);
-    saveState('goals', []);
-    saveState('accounts', DEFAULT_BLANK_ACCOUNTS);
-    saveState('categories', DEFAULT_CATEGORIES);
   };
 
   const importInitialPreset = () => {
@@ -568,22 +898,14 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setInvestments(seed.investments);
     setGoals(seed.goals);
 
-    saveState('accounts', seed.accounts);
-    saveState('categories', seed.categories);
-    saveState('transactions', seed.transactions);
-    saveState('fixed_expenses', seed.fixedExpenses);
-    saveState('income_sources', seed.incomeSources);
-    saveState('investments', seed.investments);
-    saveState('goals', seed.goals);
-
     showCelebration('Dados Iniciais Carregados', 'O painel foi configurado com seu perfil inicial completo!');
   };
 
   const exportDataJson = () => {
     const backupData = {
-      version: '1.0',
+      version: '2.0-supabase',
       exportedAt: new Date().toISOString(),
-      user: { name: user?.name, email: user?.email },
+      user: { id: user?.id, name: user?.name, email: user?.email },
       accounts,
       categories,
       transactions,
@@ -600,36 +922,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const parsed = JSON.parse(jsonString);
       if (!parsed || typeof parsed !== 'object') return false;
 
-      if (Array.isArray(parsed.accounts)) {
-        setAccounts(parsed.accounts);
-        saveState('accounts', parsed.accounts);
-      }
-      if (Array.isArray(parsed.categories)) {
-        setCategories(parsed.categories);
-        saveState('categories', parsed.categories);
-      }
-      if (Array.isArray(parsed.transactions)) {
-        setTransactions(parsed.transactions);
-        saveState('transactions', parsed.transactions);
-      }
-      if (Array.isArray(parsed.fixedExpenses)) {
-        setFixedExpenses(parsed.fixedExpenses);
-        saveState('fixed_expenses', parsed.fixedExpenses);
-      }
-      if (Array.isArray(parsed.incomeSources)) {
-        setIncomeSources(parsed.incomeSources);
-        saveState('income_sources', parsed.incomeSources);
-      }
-      if (Array.isArray(parsed.investments)) {
-        setInvestments(parsed.investments);
-        saveState('investments', parsed.investments);
-      }
-      if (Array.isArray(parsed.goals)) {
-        setGoals(parsed.goals);
-        saveState('goals', parsed.goals);
-      }
+      if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions);
+      if (Array.isArray(parsed.fixedExpenses)) setFixedExpenses(parsed.fixedExpenses);
+      if (Array.isArray(parsed.incomeSources)) setIncomeSources(parsed.incomeSources);
+      if (Array.isArray(parsed.investments)) setInvestments(parsed.investments);
+      if (Array.isArray(parsed.goals)) setGoals(parsed.goals);
 
-      showCelebration('Backup Restaurado!', 'Seus dados foram importados com sucesso.');
+      showCelebration('Backup Restaurado!', 'Seus dados foram importados.');
       return true;
     } catch (err) {
       console.error('Error importing data JSON', err);
@@ -639,6 +938,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const resetToDefaultData = () => {
     importInitialPreset();
+  };
+
+  const refreshData = async () => {
+    await loadSupabaseData(false);
   };
 
   return (
@@ -652,6 +955,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         investments,
         goals,
         alerts,
+        isDataLoading,
+        toast,
+        dismissToast,
+        showToast,
         selectedYear,
         selectedMonth,
         setSelectedYear,
@@ -686,7 +993,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateGoal,
         deleteGoal,
         addCategory,
+        deleteCategory,
         addAccount,
+        migrateFromDeviceToCloud,
         celebration,
         closeCelebration,
         triggerConfetti,
@@ -695,6 +1004,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         exportDataJson,
         importDataJson,
         resetToDefaultData,
+        refreshData,
       }}
     >
       {children}

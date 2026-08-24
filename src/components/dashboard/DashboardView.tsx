@@ -8,6 +8,7 @@ import {
   Compass,
   CreditCard,
   DollarSign,
+  Loader2,
   PiggyBank,
   Plus,
   QrCode,
@@ -45,6 +46,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
     budget503020,
     selectedMonth,
     selectedYear,
+    isDataLoading,
     accounts,
     fixedExpenses,
     transactions,
@@ -57,9 +59,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
   const netSavings = monthlyCashFlow.income - monthlyCashFlow.expenses;
   const savingsRate = monthlyCashFlow.income > 0 ? (netSavings / monthlyCashFlow.income) * 100 : 0;
 
+  if (isDataLoading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4 text-center">
+        <div className="w-12 h-12 rounded-2xl bg-[#f74603]/10 border border-[#f74603]/30 flex items-center justify-center text-[#f74603] animate-pulse">
+          <Loader2 className="w-6 h-6 animate-spin text-[#f74603]" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-base font-bold text-white">Carregando seus dados...</h3>
+          <p className="text-xs text-white/50">Sincronizando informações com o Supabase</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-28 lg:pb-12">
-      {/* 1. HERO CARD (Inspired by Reference 1 & 4: Glowing Molten Orange Atmospheric Card) */}
+      {/* 1. HERO CARD (Glowing Molten Orange Atmospheric Card) */}
       <div className="relative overflow-hidden rounded-3xl bg-brand-hero border border-orange-500/20 shadow-2xl glow-orange text-white p-6 sm:p-8">
         {/* Subtle decorative glow mesh */}
         <div className="absolute -right-16 -top-16 w-64 h-64 bg-orange-500/30 rounded-full blur-3xl pointer-events-none" />
@@ -148,7 +164,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
           </div>
         </div>
 
-        {/* Quick Action Pill Buttons (Deposit, Withdraw, Invest, Pay) */}
+        {/* Quick Action Pill Buttons */}
         <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
           <button
             onClick={onOpenQuickAdd}
@@ -184,7 +200,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
         </div>
       </div>
 
-      {/* 2. Key Pillars Overview Cards (Dark Charcoal with Orange Accents) */}
+      {/* 2. Key Pillars Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Card 1: Reserva de Emergência */}
         <div
@@ -280,24 +296,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
         </div>
       </div>
 
-      {/* 3. Evolução do Patrimônio Líquido (Últimos 12 Meses com Recharts) */}
+      {/* 3. Evolução do Patrimônio Líquido */}
       <NetWorthLineChartWidget />
 
       {/* 4. Indicador Principal — Liberdade Financeira */}
       <FinancialFreedomWidget />
 
-      {/* 4. Calendário de Próximos Compromissos & Fluxo de Caixa */}
+      {/* 5. Calendário de Próximos Compromissos & Fluxo de Caixa */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <UpcomingCalendarWidget />
         <CashFlowChartWidget />
       </div>
 
-      {/* 5. Projeção da Reserva */}
+      {/* 6. Projeção da Reserva */}
       <ReserveProjectionWidget />
 
-      {/* 6. Quitação de Dívidas & Financiamentos (se houver) */}
+      {/* 7. Quitação de Dívidas & Financiamentos */}
       <DebtsPayoffWidget />
     </div>
   );
 };
-

@@ -1,117 +1,215 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { UserProfile } from '../types';
-import { getBlankUserData, getInitialSeedData } from '../utils/defaultData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { getUserProfile, upsertUserProfile } from '../lib/supabaseService';
+import { getInitialSeedData, getBlankUserData } from '../utils/defaultData';
 
 interface AuthContextType {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  isCloudConnected: boolean;
   login: (email: string, pass: string) => Promise<boolean>;
   signup: (email: string, pass: string, name?: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   demoLogin: () => void;
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>;
-  updateProfile: (updates: Partial<UserProfile>) => void;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   completeOnboarding: (answers?: {
     income: number;
     expenses: number;
     invested: number;
     emergencyGoal: number;
-  }) => void;
+  }) => Promise<void>;
   loadSeedProfile: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = 'cfp_auth_user_session';
-const USERS_REGISTRY_KEY = 'cfp_registered_users';
-const CREDENTIALS_KEY = 'cfp_auth_credentials';
-
-// Pre-registered system accounts
-const DEFAULT_SYSTEM_CREDENTIALS: Record<string, string> = {
-  'jefersonrocha998@gmail.com': 'Jef190997',
-};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const isCloudConnected = isSupabaseConfigured();
 
-  // Initialize session on mount
+  // Initialize session and listen to Supabase Auth state
   useEffect(() => {
-    try {
-      // Ensure default credentials registry exists
-      const savedCreds = localStorage.getItem(CREDENTIALS_KEY);
-      if (!savedCreds) {
-        localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(DEFAULT_SYSTEM_CREDENTIALS));
-      } else {
-        const parsed = JSON.parse(savedCreds);
-        const merged = { ...DEFAULT_SYSTEM_CREDENTIALS, ...parsed };
-        localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(merged));
-      }
+    let mounted = true;
 
-      const savedSession = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (savedSession) {
-        const parsed = JSON.parse(savedSession);
-        setUser(parsed);
-      } else {
-        // Start directly with Jeferson Rocha blank profile ready for manual input
-        const blankUser = getBlankUserData('Jeferson Rocha', 'jefersonrocha998@gmail.com');
-        setUser(blankUser.profile);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(blankUser.profile));
+    async function initSession() {
+      try {
+        if (isSupabaseConfigured()) {
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) {
+            console.error('[Supabase Auth] Session error:', sessionError);
+          }
+
+          if (session?.user) {
+            const userId = session.user.id;
+            const userEmail = session.user.email || '';
+            const userMetaName = session.user.user_metadata?.name || session.user.user_metadata?.full_name;
+            const fallbackName = userMetaName || userEmail.split('@')[0] || 'Usuário';
+
+            // Fetch DB profile if exists
+            const dbProfile = await getUserProfile(userId);
+
+            const profile: UserProfile = {
+              id: userId,
+              name: dbProfile?.name || fallbackName,
+              email: userEmail,
+              emergencyGoal: dbProfile?.emergencyGoal || 40000,
+              monthlyInvestmentGoalPercent: 20,
+              budgetRule: dbProfile?.budgetRule || {
+                necessitiesPercent: 50,
+                leisurePercent: 30,
+                investmentsPercent: 20,
+              },
+              hasCompletedOnboarding: true,
+              createdAt: session.user.created_at || new Date().toISOString(),
+            };
+
+            if (mounted) {
+              setUser(profile);
+              localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
+            }
+          } else {
+            // Check local cache if any
+            const savedSession = localStorage.getItem(AUTH_STORAGE_KEY);
+            if (savedSession && mounted) {
+              setUser(JSON.parse(savedSession));
+            } else if (mounted) {
+              // Default to null user if not authenticated in Supabase
+              setUser(null);
+            }
+          }
+        } else {
+          // Fallback if Supabase credentials are not filled yet
+          const savedSession = localStorage.getItem(AUTH_STORAGE_KEY);
+          if (savedSession && mounted) {
+            setUser(JSON.parse(savedSession));
+          } else if (mounted) {
+            const blank = getBlankUserData('Jeferson Rocha', 'jefersonrocha998@gmail.com');
+            setUser(blank.profile);
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(blank.profile));
+          }
+        }
+      } catch (err) {
+        console.error('[Auth Init Error]:', err);
+      } finally {
+        if (mounted) setIsLoading(false);
       }
-    } catch (e) {
-      console.error('Error loading session:', e);
-      const blankUser = getBlankUserData('Jeferson Rocha', 'jefersonrocha998@gmail.com');
-      setUser(blankUser.profile);
-    } finally {
-      setIsLoading(false);
     }
+
+    initSession();
+
+    // Subscribe to Supabase auth state change events
+    if (isSupabaseConfigured()) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!mounted) return;
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          const userId = session.user.id;
+          const userEmail = session.user.email || '';
+          const userMetaName = session.user.user_metadata?.name || session.user.user_metadata?.full_name;
+          const fallbackName = userMetaName || userEmail.split('@')[0] || 'Usuário';
+
+          const dbProfile = await getUserProfile(userId);
+
+          const profile: UserProfile = {
+            id: userId,
+            name: dbProfile?.name || fallbackName,
+            email: userEmail,
+            emergencyGoal: dbProfile?.emergencyGoal || 40000,
+            monthlyInvestmentGoalPercent: 20,
+            budgetRule: dbProfile?.budgetRule || {
+              necessitiesPercent: 50,
+              leisurePercent: 30,
+              investmentsPercent: 20,
+            },
+            hasCompletedOnboarding: true,
+            createdAt: session.user.created_at || new Date().toISOString(),
+          };
+
+          setUser(profile);
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          localStorage.removeItem(AUTH_STORAGE_KEY);
+        }
+      });
+
+      return () => {
+        mounted = false;
+        subscription.unsubscribe();
+      };
+    }
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  // Supabase Login
   const login = async (email: string, pass: string): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
-    await new Promise((r) => setTimeout(r, 400)); // smooth micro-delay
 
     try {
       const cleanEmail = email.toLowerCase().trim();
-      const savedCreds = localStorage.getItem(CREDENTIALS_KEY);
-      const creds: Record<string, string> = savedCreds ? JSON.parse(savedCreds) : DEFAULT_SYSTEM_CREDENTIALS;
 
-      // If registered with password, check match
-      if (creds[cleanEmail] && creds[cleanEmail] !== pass) {
-        setError('Senha incorreta para este e-mail. Verifique os dados informados.');
-        setIsLoading(false);
-        return false;
+      if (isSupabaseConfigured()) {
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: pass,
+        });
+
+        if (authError) {
+          console.error('[Supabase Auth Login Error]:', authError);
+          // Friendly translated error message
+          if (authError.message.includes('Invalid login credentials')) {
+            setError('E-mail ou senha incorretos. Verifique suas credenciais.');
+          } else if (authError.message.includes('Email not confirmed')) {
+            setError('E-mail ainda não confirmado. Verifique sua caixa de entrada.');
+          } else {
+            setError(authError.message || 'Erro ao realizar login no Supabase.');
+          }
+          setIsLoading(false);
+          return false;
+        }
+
+        if (data.user) {
+          const dbProfile = await getUserProfile(data.user.id);
+          const profile: UserProfile = {
+            id: data.user.id,
+            name: dbProfile?.name || data.user.user_metadata?.name || cleanEmail.split('@')[0],
+            email: cleanEmail,
+            emergencyGoal: dbProfile?.emergencyGoal || 40000,
+            monthlyInvestmentGoalPercent: 20,
+            budgetRule: dbProfile?.budgetRule || {
+              necessitiesPercent: 50,
+              leisurePercent: 30,
+              investmentsPercent: 20,
+            },
+            hasCompletedOnboarding: true,
+            createdAt: data.user.created_at || new Date().toISOString(),
+          };
+
+          setUser(profile);
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
+          setIsLoading(false);
+          return true;
+        }
       }
 
-      // If not yet saved in credentials, register pass
-      if (!creds[cleanEmail]) {
-        creds[cleanEmail] = pass;
-        localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(creds));
-      }
-
-      const usersRaw = localStorage.getItem(USERS_REGISTRY_KEY);
-      const users: UserProfile[] = usersRaw ? JSON.parse(usersRaw) : [];
-      const found = users.find((u) => u.email.toLowerCase() === cleanEmail);
-
-      if (found) {
-        setUser(found);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(found));
-        setIsLoading(false);
-        return true;
-      }
-
-      // If user profile not in registry, create blank clean profile
-      const name = cleanEmail === 'jefersonrocha998@gmail.com' ? 'Jeferson Rocha' : cleanEmail.split('@')[0];
-      const cleanName = name.charAt(0).toUpperCase() + name.slice(1);
-      const newUser: UserProfile = {
+      // Fallback mode if Supabase env vars are not set
+      const profile: UserProfile = {
         id: `user-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        name: cleanName,
+        name: cleanEmail === 'jefersonrocha998@gmail.com' ? 'Jeferson Rocha' : cleanEmail.split('@')[0],
         email: cleanEmail,
-        emergencyGoal: 30000,
+        emergencyGoal: 40000,
         monthlyInvestmentGoalPercent: 20,
         budgetRule: {
           necessitiesPercent: 50,
@@ -121,14 +219,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasCompletedOnboarding: true,
         createdAt: new Date().toISOString(),
       };
-
-      const updatedUsers = [...users, newUser];
-      localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(updatedUsers));
-      setUser(newUser);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
+      setUser(profile);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
       setIsLoading(false);
       return true;
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       setError('Ocorreu um erro ao realizar o login. Tente novamente.');
       setIsLoading(false);
@@ -136,29 +231,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Supabase Signup
   const signup = async (email: string, pass: string, name?: string): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
-    await new Promise((r) => setTimeout(r, 400));
 
     try {
       const cleanEmail = email.toLowerCase().trim();
-      const cleanName = name?.trim() || (cleanEmail === 'jefersonrocha998@gmail.com' ? 'Jeferson Rocha' : cleanEmail.split('@')[0]);
+      const cleanName = name?.trim() || cleanEmail.split('@')[0];
 
-      // Save credentials
-      const savedCreds = localStorage.getItem(CREDENTIALS_KEY);
-      const creds: Record<string, string> = savedCreds ? JSON.parse(savedCreds) : DEFAULT_SYSTEM_CREDENTIALS;
-      creds[cleanEmail] = pass;
-      localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(creds));
+      if (isSupabaseConfigured()) {
+        const { data, error: authError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: pass,
+          options: {
+            data: {
+              name: cleanName,
+            },
+          },
+        });
 
-      const usersRaw = localStorage.getItem(USERS_REGISTRY_KEY);
-      const users: UserProfile[] = usersRaw ? JSON.parse(usersRaw) : [];
+        if (authError) {
+          console.error('[Supabase Auth Signup Error]:', authError);
+          if (authError.message.includes('User already registered')) {
+            setError('Este e-mail já está cadastrado. Tente fazer login.');
+          } else if (authError.message.includes('Password should be at least')) {
+            setError('A senha deve ter no mínimo 6 caracteres.');
+          } else {
+            setError(authError.message || 'Erro ao criar conta no Supabase.');
+          }
+          setIsLoading(false);
+          return false;
+        }
 
-      const newUser: UserProfile = {
+        if (data.user) {
+          const profile: UserProfile = {
+            id: data.user.id,
+            name: cleanName,
+            email: cleanEmail,
+            emergencyGoal: 40000,
+            monthlyInvestmentGoalPercent: 20,
+            budgetRule: {
+              necessitiesPercent: 50,
+              leisurePercent: 30,
+              investmentsPercent: 20,
+            },
+            hasCompletedOnboarding: true,
+            createdAt: data.user.created_at || new Date().toISOString(),
+          };
+
+          await upsertUserProfile(profile);
+          setUser(profile);
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
+          setIsLoading(false);
+          return true;
+        }
+      }
+
+      // Local fallback
+      const profile: UserProfile = {
         id: `user-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
         name: cleanName,
         email: cleanEmail,
-        emergencyGoal: 30000,
+        emergencyGoal: 40000,
         monthlyInvestmentGoalPercent: 20,
         budgetRule: {
           necessitiesPercent: 50,
@@ -169,17 +304,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: new Date().toISOString(),
       };
 
-      const updatedUsers = [...users.filter((u) => u.email !== newUser.email), newUser];
-      localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(updatedUsers));
-      setUser(newUser);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
+      setUser(profile);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
       setIsLoading(false);
       return true;
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError('Erro ao criar conta.');
+      setError(e.message || 'Erro ao criar conta.');
       setIsLoading(false);
       return false;
+    }
+  };
+
+  // Supabase Password Reset
+  const resetPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const cleanEmail = email.toLowerCase().trim();
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: `${window.location.origin}/`,
+        });
+
+        if (error) {
+          return { success: false, message: error.message };
+        }
+      }
+
+      return {
+        success: true,
+        message: `Enviamos as instruções de recuperação para ${cleanEmail}. Verifique sua caixa de entrada.`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || 'Erro ao solicitar redefinição de senha.',
+      };
+    }
+  };
+
+  // Supabase Logout
+  const logout = async () => {
+    try {
+      if (isSupabaseConfigured()) {
+        await supabase.auth.signOut();
+      }
+    } catch (e) {
+      console.error('Logout error:', e);
+    } finally {
+      setUser(null);
+      localStorage.removeItem(AUTH_STORAGE_KEY);
     }
   };
 
@@ -189,39 +362,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(seed.profile));
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-  };
-
-  const resetPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
-    await new Promise((r) => setTimeout(r, 600));
-    return {
-      success: true,
-      message: `Enviamos as instruções de recuperação para ${email}. Verifique sua caixa de entrada.`,
-    };
-  };
-
-  const updateProfile = (updates: Partial<UserProfile>) => {
+  const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return;
-    const updated = { ...user, ...updates };
+    const updated: UserProfile = { ...user, ...updates };
     setUser(updated);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
 
-    // Also update users registry
-    try {
-      const usersRaw = localStorage.getItem(USERS_REGISTRY_KEY);
-      if (usersRaw) {
-        const users: UserProfile[] = JSON.parse(usersRaw);
-        const nextUsers = users.map((u) => (u.id === user.id ? updated : u));
-        localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(nextUsers));
-      }
-    } catch (e) {
-      console.error(e);
+    if (isSupabaseConfigured()) {
+      await upsertUserProfile(updated);
     }
   };
 
-  const completeOnboarding = (answers?: {
+  const completeOnboarding = async (answers?: {
     income: number;
     expenses: number;
     invested: number;
@@ -231,10 +383,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updated: UserProfile = {
       ...user,
       hasCompletedOnboarding: true,
-      emergencyGoal: answers?.emergencyGoal || user.emergencyGoal || 30000,
+      emergencyGoal: answers?.emergencyGoal || user.emergencyGoal || 40000,
     };
     setUser(updated);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+
+    if (isSupabaseConfigured()) {
+      await upsertUserProfile(updated);
+    }
   };
 
   const loadSeedProfile = () => {
@@ -250,6 +406,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user,
         isLoading,
         error,
+        isCloudConnected,
         login,
         signup,
         logout,
