@@ -21,7 +21,7 @@ export const OnboardingWizard: React.FC = () => {
   const [step, setStep] = useState(1);
 
   // Step 1: Profile & Name
-  const [name, setName] = useState(user?.name || 'Jeferson');
+  const [name, setName] = useState(user?.name || 'Usuário');
 
   // Step 2: Main Income
   const [incomeName, setIncomeName] = useState('Salário Principal');
@@ -42,7 +42,7 @@ export const OnboardingWizard: React.FC = () => {
     } else {
       // Finalize Onboarding
       updateProfile({
-        name: name.trim() || 'Jeferson',
+        name: name.trim() || 'Usuário',
         emergencyGoal: parseCurrencyInput(reserveGoalStr) || 40000,
         emergencyTargetMonths: targetMonths || 6,
       });

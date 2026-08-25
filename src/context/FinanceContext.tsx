@@ -889,7 +889,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const importInitialPreset = () => {
-    const seed = getInitialSeedData(user?.name || 'Jeferson', user?.email || 'JefersonRocha998@gmail.com');
+    const seed = getInitialSeedData(user?.name || 'Usuário Demo', user?.email || 'demo@exemplo.com');
     setAccounts(seed.accounts);
     setCategories(seed.categories);
     setTransactions(seed.transactions);

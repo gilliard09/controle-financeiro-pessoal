@@ -3,6 +3,7 @@ import {
   Bell,
   Calendar,
   ChevronDown,
+  CloudOff,
   Download,
   LogOut,
   Moon,
@@ -40,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
     else if (setActiveTab) setActiveTab(tab);
   };
 
-  const { user, logout } = useAuth();
+  const { user, logout, isCloudConnected } = useAuth();
   const {
     totalWealth,
     emergencyReserve,
@@ -96,6 +97,17 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
             </button>
+
+            {/* Status de sincronização: nuvem (Supabase) vs somente local */}
+            {!isCloudConnected && (
+              <div
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300"
+                title="O Supabase não está configurado. Seus dados estão salvos apenas neste navegador (localStorage), sem backup na nuvem."
+              >
+                <CloudOff className="w-3 h-3" />
+                <span className="text-[10px] font-bold">Somente local</span>
+              </div>
+            )}
 
             {/* Desktop Navigation links */}
             <nav className="hidden lg:flex items-center gap-1 ml-6 p-1 bg-black/40 border border-white/5 rounded-2xl">
@@ -309,6 +321,13 @@ export const Header: React.FC<HeaderProps> = ({
                       </p>
                       <p className="text-[11px] text-[#a7a7a7] truncate">
                         {user?.email}
+                      </p>
+                      <p className={`text-[10px] font-bold mt-1 flex items-center gap-1 ${isCloudConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {isCloudConnected ? '☁ Sincronizado com a nuvem' : (
+                          <>
+                            <CloudOff className="w-3 h-3" /> Somente local (sem backup)
+                          </>
+                        )}
                       </p>
                     </div>
 

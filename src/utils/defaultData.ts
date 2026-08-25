@@ -52,9 +52,9 @@ export const DEFAULT_BLANK_ACCOUNTS: Account[] = [
   { id: 'acc-carteira', name: 'Carteira Física', institution: 'Dinheiro', type: 'wallet', balance: 0.0, color: '#4B5563' },
 ];
 
-export function getBlankUserData(userName: string = 'Jeferson Rocha', userEmail: string = 'jefersonrocha998@gmail.com') {
+export function getBlankUserData(userName: string = 'Usuário', userEmail: string = '') {
   const profile: UserProfile = {
-    id: 'user-jeferson',
+    id: 'user-local',
     name: userName,
     email: userEmail.toLowerCase(),
     emergencyGoal: 30000.0,
@@ -80,7 +80,7 @@ export function getBlankUserData(userName: string = 'Jeferson Rocha', userEmail:
   };
 }
 
-export function getInitialSeedData(userName: string = 'Jeferson', userEmail: string = 'JefersonRocha998@gmail.com') {
+export function getInitialSeedData(userName: string = 'Usuário Demo', userEmail: string = 'demo@exemplo.com') {
   const profile: UserProfile = {
     id: 'user-default',
     name: userName,

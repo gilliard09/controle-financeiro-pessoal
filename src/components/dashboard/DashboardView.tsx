@@ -91,7 +91,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
             </div>
             <div>
               <p className="text-[11px] text-orange-200/80 font-medium">
-                {getGreeting(user?.name || 'Jeferson')}
+                {getGreeting(user?.name || 'Usuário')}
               </p>
               <h2 className="text-sm font-bold text-white tracking-tight">
                 {getMonthName(selectedMonth - 1)} de {selectedYear}

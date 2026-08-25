@@ -48,7 +48,7 @@ export const SettingsView: React.FC = () => {
     migrateFromDeviceToCloud,
   } = useFinance();
 
-  const [userName, setUserName] = useState(user?.name || 'Jeferson');
+  const [userName, setUserName] = useState(user?.name || 'Usuário');
   const [emergencyGoal, setEmergencyGoal] = useState(user?.emergencyGoal || 40000);
   const [monthsTarget, setMonthsTarget] = useState(user?.emergencyTargetMonths || 6);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -578,7 +578,11 @@ CREATE POLICY "Usuários gerenciam seu próprio perfil" ON public.user_profiles 
                 ({cat.group === 'necessities' ? '50%' : cat.group === 'leisure' ? '30%' : '20%'})
               </span>
               <button
-                onClick={() => deleteCategory(cat.id)}
+                onClick={() => {
+                  if (window.confirm(`Excluir a categoria "${cat.name}"? Transações já lançadas nela não serão apagadas.`)) {
+                    deleteCategory(cat.id);
+                  }
+                }}
                 className="text-white/40 hover:text-rose-400 ml-1 transition-colors"
               >
                 ×
@@ -631,14 +635,14 @@ CREATE POLICY "Usuários gerenciam seu próprio perfil" ON public.user_profiles 
 
           <button
             onClick={() => {
-              if (window.confirm('Deseja restaurar os dados padrão de demonstração de Jeferson?')) {
+              if (window.confirm('Isso vai APAGAR seus dados atuais e substituir pelos dados de demonstração. Essa ação não pode ser desfeita. Deseja continuar?')) {
                 resetToDefaultData();
               }
             }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-bold transition-colors"
           >
             <RefreshCcw className="w-4 h-4" />
-            <span>Restaurar Dados de Jeferson</span>
+            <span>Restaurar Dados de Demonstração</span>
           </button>
         </div>
       </div>

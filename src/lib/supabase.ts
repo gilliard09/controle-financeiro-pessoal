@@ -2,7 +2,12 @@ import { createClient } from '@supabase/supabase-js';
 
 // Environment variables from Vite (.env / Vercel / Cloud Run)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Aceita VITE_SUPABASE_ANON_KEY (nome padrão) ou VITE_SUPABASE_PUBLISHABLE_KEY (nome novo do Supabase)
+// para evitar que a nuvem "desligue" silenciosamente por causa de uma variável com nome diferente.
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  '';
 
 // Verify if Supabase environment variables are provided
 export const isSupabaseConfigured = (): boolean => {

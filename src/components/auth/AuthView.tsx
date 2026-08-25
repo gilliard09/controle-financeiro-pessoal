@@ -15,9 +15,9 @@ export const AuthView: React.FC = () => {
   const { login, signup, resetPassword, demoLogin, error } = useAuth();
 
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
-  const [email, setEmail] = useState('jefersonrocha998@gmail.com');
-  const [password, setPassword] = useState('Jef190997');
-  const [name, setName] = useState('Jeferson Rocha');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -30,7 +30,7 @@ export const AuthView: React.FC = () => {
       if (mode === 'login') {
         await login(email, password);
       } else if (mode === 'signup') {
-        await signup(email, password, name || 'Jeferson');
+        await signup(email, password, name || 'Usuário');
       } else {
         await resetPassword(email);
         setMessage('Instruções de recuperação de senha enviadas para seu e-mail!');
@@ -116,7 +116,7 @@ export const AuthView: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Jeferson"
+                    placeholder="Ex: Maria"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 bg-black/40 border border-white/10 rounded-xl text-xs font-semibold text-white placeholder:text-white/30 focus:outline-none focus:border-[#f74603]"
@@ -197,7 +197,7 @@ export const AuthView: React.FC = () => {
               className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5 text-[#f74603]" />
-              <span>Entrar com Dados Prontos de Jeferson</span>
+              <span>Entrar com Dados de Demonstração</span>
             </button>
           </div>
         </div>

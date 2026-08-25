@@ -91,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (savedSession && mounted) {
             setUser(JSON.parse(savedSession));
           } else if (mounted) {
-            const blank = getBlankUserData('Jeferson Rocha', 'jefersonrocha998@gmail.com');
+            const blank = getBlankUserData();
             setUser(blank.profile);
             localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(blank.profile));
           }
@@ -207,7 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fallback mode if Supabase env vars are not set
       const profile: UserProfile = {
         id: `user-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        name: cleanEmail === 'jefersonrocha998@gmail.com' ? 'Jeferson Rocha' : cleanEmail.split('@')[0],
+        name: cleanEmail.split('@')[0],
         email: cleanEmail,
         emergencyGoal: 40000,
         monthlyInvestmentGoalPercent: 20,
@@ -357,7 +357,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const demoLogin = () => {
-    const seed = getInitialSeedData('Jeferson', 'JefersonRocha998@gmail.com');
+    const seed = getInitialSeedData();
     setUser(seed.profile);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(seed.profile));
   };
@@ -394,7 +394,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loadSeedProfile = () => {
-    const seed = getInitialSeedData('Jeferson', 'JefersonRocha998@gmail.com');
+    const seed = getInitialSeedData();
     setUser(seed.profile);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(seed.profile));
   };
