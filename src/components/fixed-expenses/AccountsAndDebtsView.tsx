@@ -26,6 +26,9 @@ export const AccountsAndDebtsView: React.FC = () => {
     deleteFixedExpense,
     payDebtInstallment,
     debtsSummary,
+    transactions,
+    selectedMonth,
+    selectedYear,
   } = useFinance();
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -55,6 +58,30 @@ export const AccountsAndDebtsView: React.FC = () => {
   const totalAfterEndingDebts = fixedExpenses
     .filter((e) => e.active && !e.completed && (!e.isDebt || (e.totalInstallments || 1) - (e.currentInstallment || 0) > 2))
     .reduce((sum, e) => sum + e.amount, 0);
+
+  const monthlyBills = fixedExpenses.filter((e) => e.active && !e.completed);
+  const paidBillIds = new Set(
+    transactions
+      .filter((tx) => {
+        const d = new Date(tx.date.includes('T') ? tx.date : `${tx.date}T12:00:00`);
+        return tx.type === 'expense' && tx.status === 'paid' &&
+          d.getFullYear() === selectedYear && d.getMonth() + 1 === selectedMonth;
+      })
+      .flatMap((tx) => tx.fixedExpenseId ? [tx.fixedExpenseId] : [])
+  );
+  const paidBills = monthlyBills.filter((bill) =>
+    paidBillIds.has(bill.id) ||
+    transactions.some((tx) => {
+      const d = new Date(tx.date.includes('T') ? tx.date : `${tx.date}T12:00:00`);
+      return tx.type === 'expense' && tx.status === 'paid' &&
+        d.getFullYear() === selectedYear && d.getMonth() + 1 === selectedMonth &&
+        tx.description.trim().toLowerCase() === bill.name.trim().toLowerCase();
+    })
+  );
+  const totalBills = monthlyBills.reduce((sum, bill) => sum + bill.amount, 0);
+  const totalPaidBills = paidBills.reduce((sum, bill) => sum + bill.amount, 0);
+  const totalRemainingBills = Math.max(0, totalBills - totalPaidBills);
+  const paidPercent = totalBills > 0 ? Math.min(100, (totalPaidBills / totalBills) * 100) : 0;
 
   const openNewModal = () => {
     setEditingExpense(null);
@@ -151,48 +178,48 @@ export const AccountsAndDebtsView: React.FC = () => {
         </button>
       </div>
 
-      {/* Summary Impact Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-[#141112] p-5 rounded-3xl border border-white/10 shadow-xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none group-hover:bg-white/10 transition-colors" />
-          <span className="text-xs font-semibold text-white/50 block mb-1">
-            Total Atual de Despesas Fixas
-          </span>
-          <p className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            {formatCurrency(totalActiveFixed)}
-          </p>
-          <span className="text-[11px] text-white/40 mt-1.5 block">
-            Inclui moradia, serviços e financiamentos
-          </span>
-        </div>
-
-        <div className="bg-[#141112] p-5 rounded-3xl border border-emerald-500/30 shadow-xl relative overflow-hidden group">
-          <div className="absolute -right-8 -top-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-emerald-500/20 transition-colors" />
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-emerald-400">
-              Após Término do Crédito Pessoal
-            </span>
-            <Sparkles className="w-4 h-4 text-emerald-400" />
+      {/* Resumo mensal de contas */}
+      <section className="bg-[#141112] rounded-3xl p-5 sm:p-6 border border-white/10 shadow-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-bold text-white">Contas do mês</h2>
+            <p className="text-[11px] text-white/35 mt-0.5">Acompanhe o que já foi pago e o que ainda falta.</p>
           </div>
-          <p className="text-2xl sm:text-3xl font-extrabold text-emerald-400 tracking-tight">
-            {formatCurrency(totalAfterEndingDebts)}
-          </p>
-          <span className="text-[11px] text-emerald-400/80 mt-1.5 block font-semibold">
-            Redução definitiva no seu custo de vida!
-          </span>
+          <span className="text-lg font-extrabold text-white">{paidPercent.toFixed(0)}%</span>
         </div>
 
-        <div className="bg-[#141112] p-5 rounded-3xl border border-[#f74603]/30 shadow-xl relative overflow-hidden group">
-          <div className="absolute -right-8 -top-8 w-32 h-32 bg-[#f74603]/10 rounded-full blur-2xl pointer-events-none group-hover:bg-[#f74603]/20 transition-colors" />
-          <span className="text-xs font-bold text-[#f74603] block mb-1">
-            Dinheiro Liberado pós Quitações
-          </span>
-          <p className="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#f74603] to-[#ff7d45] tracking-tight">
-            +{formatCurrency(debtsSummary.totalReleasedAfterAllDebts)}/mês
-          </p>
-          <span className="text-[11px] text-white/40 mt-1.5 block">
-            Valor mensal que será direcionado a investimentos
-          </span>
+        <div className="h-2.5 bg-white/5 rounded-full overflow-hidden mt-5">
+          <div
+            className="h-full bg-[#f74603] rounded-full transition-all duration-500"
+            style={{ width: `${paidPercent}%` }}
+          />
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mt-5">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-white/35 block">Total</span>
+            <p className="text-sm font-extrabold text-white mt-1">{formatCurrency(totalBills)}</p>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-white/35 block">Pago</span>
+            <p className="text-sm font-extrabold text-emerald-400 mt-1">{formatCurrency(totalPaidBills)}</p>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-white/35 block">Restante</span>
+            <p className="text-sm font-extrabold text-rose-400 mt-1">{formatCurrency(totalRemainingBills)}</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Visão de dívidas e economia futura */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="bg-[#141112] p-4 rounded-2xl border border-white/10">
+          <span className="text-[10px] uppercase font-bold text-white/35 block">Despesas fixas ativas</span>
+          <p className="text-xl font-extrabold text-white mt-1">{formatCurrency(totalActiveFixed)}</p>
+        </div>
+        <div className="bg-[#141112] p-4 rounded-2xl border border-emerald-500/20">
+          <span className="text-[10px] uppercase font-bold text-emerald-400/70 block">Liberado após quitações</span>
+          <p className="text-xl font-extrabold text-emerald-400 mt-1">+{formatCurrency(debtsSummary.totalReleasedAfterAllDebts)}/mês</p>
         </div>
       </div>
 
@@ -338,6 +365,7 @@ export const AccountsAndDebtsView: React.FC = () => {
         <div className="divide-y divide-white/5">
           {regularExpenses.map((exp) => {
             const isDeleteConfirm = deleteConfirmId === exp.id;
+            const isPaid = paidBills.some((bill) => bill.id === exp.id);
             return (
               <div
                 key={exp.id}
@@ -348,9 +376,14 @@ export const AccountsAndDebtsView: React.FC = () => {
                     {exp.dueDay}
                   </div>
                   <div>
-                    <p className="text-xs sm:text-sm font-bold text-white">
-                      {exp.name}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs sm:text-sm font-bold text-white">{exp.name}</p>
+                      <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${
+                        isPaid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                      }`}>
+                        {isPaid ? 'Pago' : 'Pendente'}
+                      </span>
+                    </div>
                     <span className="text-[11px] text-white/40">
                       Vencimento todo dia {exp.dueDay} • Mensal
                     </span>

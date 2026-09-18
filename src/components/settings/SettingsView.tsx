@@ -30,6 +30,7 @@ import { useFinance } from '../../context/FinanceContext';
 import { IncomeSource } from '../../types';
 import { formatCurrency, parseCurrencyInput } from '../../utils/formatters';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { ModulesPanel } from './ModulesPanel';
 
 export const SettingsView: React.FC = () => {
   const { user, updateProfile, logout } = useAuth();
@@ -308,6 +309,9 @@ CREATE POLICY "Usuários gerenciam seu próprio perfil" ON public.user_profiles 
           Sincronização multi-dispositivo (Supabase), fontes de renda, perfil e segurança
         </p>
       </div>
+
+      {/* KingdomOS: gerenciamento de módulos */}
+      <ModulesPanel />
 
       {/* 1. Supabase Cloud Sync Card */}
       <div className="bg-[#141112] rounded-3xl p-5 sm:p-6 border border-white/10 shadow-2xl space-y-4 relative overflow-hidden">

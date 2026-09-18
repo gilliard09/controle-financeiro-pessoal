@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FinanceProvider, useFinance } from './context/FinanceContext';
+import { ModuleProvider } from './context/ModuleContext';
 import { Header } from './components/common/Header';
 import { BottomNav } from './components/common/BottomNav';
-import { FloatingActionButton } from './components/common/FloatingActionButton';
 import { QuickTransactionModal } from './components/common/QuickTransactionModal';
 import { CelebrationModal } from './components/common/CelebrationModal';
+import { CommandPalette } from './components/common/CommandPalette';
+import { PlaceholderView } from './components/common/PlaceholderView';
+import { MODULES } from './lib/modules';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { TransactionsView } from './components/transactions/TransactionsView';
 import { AccountsAndDebtsView } from './components/fixed-expenses/AccountsAndDebtsView';
@@ -143,10 +146,15 @@ function AppContent() {
         {activeTab === 'projections' && <ProjectionsView />}
 
         {activeTab === 'settings' && <SettingsView />}
-      </main>
 
-      {/* Floating Action Button (Mobile & Desktop) */}
-      <FloatingActionButton onOpenQuickAdd={handleOpenQuickAdd} />
+        {/* Módulos novos do KingdomOS — placeholder até cada um ganhar sua implementação */}
+        {!['dashboard', 'transactions', 'accounts', 'investments', 'budget', 'goals', 'projections', 'settings'].includes(activeTab) &&
+          (() => {
+            const mod = MODULES.find((m) => m.id === activeTab);
+            if (!mod) return null;
+            return <PlaceholderView icon={mod.icon} title={mod.label} desc={mod.desc} />;
+          })()}
+      </main>
 
       {/* Mobile Bottom Navigation */}
       <BottomNav activeTab={activeTab} onNavigate={setActiveTab} />
@@ -172,6 +180,8 @@ function AppContent() {
           releasedAmount={celebration.releasedAmount}
         />
       )}
+
+      <CommandPalette onNavigate={setActiveTab} />
     </div>
   );
 }
@@ -180,7 +190,9 @@ export default function App() {
   return (
     <AuthProvider>
       <FinanceProvider>
-        <AppContent />
+        <ModuleProvider>
+          <AppContent />
+        </ModuleProvider>
       </FinanceProvider>
     </AuthProvider>
   );

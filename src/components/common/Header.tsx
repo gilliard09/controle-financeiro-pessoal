@@ -1,23 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Bell,
-  Calendar,
-  ChevronDown,
-  CloudOff,
-  Download,
-  LogOut,
-  Moon,
-  Plus,
-  RefreshCw,
-  Sliders,
-  Sparkles,
-  TrendingUp,
-  User,
-  X,
-} from 'lucide-react';
+import { Bell, ChevronDown, CloudOff, Download, LogOut, Plus, TrendingUp, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useFinance } from '../../context/FinanceContext';
-import { formatCurrency, getGreeting, getMonthName } from '../../utils/formatters';
+import { formatCurrency, getMonthName } from '../../utils/formatters';
 
 interface HeaderProps {
   activeTab: string;
@@ -36,334 +21,135 @@ export const Header: React.FC<HeaderProps> = ({
   deferredPrompt,
   onInstallPwa,
 }) => {
-  const navigate = (tab: string) => {
-    if (onNavigate) onNavigate(tab);
-    else if (setActiveTab) setActiveTab(tab);
-  };
-
+  const navigate = (tab: string) => onNavigate ? onNavigate(tab) : setActiveTab?.(tab);
   const { user, logout, isCloudConnected } = useAuth();
-  const {
-    totalWealth,
-    emergencyReserve,
-    selectedYear,
-    selectedMonth,
-    setSelectedYear,
-    setSelectedMonth,
-    goToCurrentMonth,
-    alerts,
-  } = useFinance();
-
-  const [showAlertsPopover, setShowAlertsPopover] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
+  const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth, goToCurrentMonth, alerts } = useFinance();
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-
-  const months = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
-
-  const unreadAlertsCount = alerts.filter((a) => !a.read).length;
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'transactions', label: 'Movimentações' },
-    { id: 'accounts', label: 'Contas & Dívidas' },
+    { id: 'accounts', label: 'Contas' },
+    { id: 'dashboard', label: 'Home' },
     { id: 'investments', label: 'Investimentos' },
-    { id: 'budget', label: 'Orçamento 50/30/20' },
-    { id: 'goals', label: 'Metas & Lazer' },
-    { id: 'projections', label: 'Projeção' },
-    { id: 'settings', label: 'Configurações' },
+    { id: 'settings', label: 'Config' },
   ];
 
+  const unreadAlerts = alerts.filter((a) => !a.read).length;
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
   return (
-    <header className="sticky top-0 z-30 bg-[#09090b]/90 backdrop-blur-xl border-b border-white/5 transition-colors">
+    <header className="sticky top-0 z-30 bg-[#09090b]/95 backdrop-blur-xl border-b border-white/5">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo & Brand */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('dashboard')}
-              className="flex items-center gap-2.5 text-left group focus:outline-none"
-            >
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-[#55100d] via-[#e85002] to-[#f74603] text-white flex items-center justify-center font-bold text-lg shadow-md group-hover:scale-105 transition-transform glow-orange-sm">
-                <TrendingUp className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-sm font-bold tracking-tight text-white block leading-tight">
-                  Finanças<span className="text-[#f74603]">.pro</span>
-                </span>
-                <span className="text-[10px] text-[#a7a7a7] block -mt-0.5 font-medium">
-                  Controle Pessoal
-                </span>
-              </div>
-            </button>
+        <div className="h-14 sm:h-16 flex items-center justify-between gap-3">
+          <button onClick={() => navigate('dashboard')} className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[#f74603] text-white flex items-center justify-center shadow-lg shadow-[#f74603]/15 shrink-0">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div className="hidden sm:block text-left">
+              <span className="text-sm font-extrabold text-white block leading-tight">Finanças<span className="text-[#f74603]">.pro</span></span>
+              <span className="text-[10px] text-white/35 block">Controle pessoal</span>
+            </div>
+          </button>
 
-            {/* Status de sincronização: nuvem (Supabase) vs somente local */}
-            {!isCloudConnected && (
-              <div
-                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300"
-                title="O Supabase não está configurado. Seus dados estão salvos apenas neste navegador (localStorage), sem backup na nuvem."
+          <nav className="hidden lg:flex items-center gap-1 bg-black/30 border border-white/5 rounded-2xl p-1">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => navigate(item.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  activeTab === item.id ? 'bg-[#f74603] text-white shadow-md' : 'text-white/45 hover:text-white hover:bg-white/5'
+                }`}
               >
-                <CloudOff className="w-3 h-3" />
-                <span className="text-[10px] font-bold">Somente local</span>
-              </div>
-            )}
+                {item.label}
+              </button>
+            ))}
+          </nav>
 
-            {/* Desktop Navigation links */}
-            <nav className="hidden lg:flex items-center gap-1 ml-6 p-1 bg-black/40 border border-white/5 rounded-2xl">
-              {navItems.map((item) => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => navigate(item.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
-                      isActive
-                        ? 'bg-[#f74603] text-white shadow-md glow-orange-sm'
-                        : 'text-[#a7a7a7] hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Right Actions: Month Selector, Quick Add, Notifications, Profile */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Month / Year Selector */}
-            <div className="relative">
+          <div className="flex items-center gap-1.5">
+            <div className="relative hidden sm:block">
               <button
                 onClick={() => setShowMonthPicker(!showMonthPicker)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-[#141112] border border-white/10 text-xs font-semibold text-[#d9d9d9] hover:border-orange-500/40 transition-colors"
-                title="Mudar mês de referência"
+                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-bold text-white/55 hover:text-white hover:bg-white/5"
               >
-                <Calendar className="w-3.5 h-3.5 text-[#f74603]" />
-                <span>
-                  {getMonthName(selectedMonth - 1).slice(0, 3)}/{selectedYear}
-                </span>
-                <ChevronDown className="w-3 h-3 text-[#a7a7a7]" />
+                {getMonthName(selectedMonth - 1)} {selectedYear}
+                <ChevronDown className="w-3.5 h-3.5" />
               </button>
-
               {showMonthPicker && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowMonthPicker(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-64 p-3.5 bg-[#141112] rounded-3xl shadow-2xl border border-white/15 z-50 animate-in fade-in zoom-in-95 backdrop-blur-xl">
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
-                      <span className="text-xs font-bold text-white">
-                        Mês de Referência
-                      </span>
+                <div className="absolute right-0 top-11 w-56 bg-[#141112] border border-white/10 rounded-2xl p-3 shadow-2xl">
+                  <div className="grid grid-cols-3 gap-1">
+                    {months.map((month, index) => (
                       <button
-                        onClick={goToCurrentMonth}
-                        className="text-[11px] text-[#f74603] hover:underline font-bold"
+                        key={month}
+                        onClick={() => { setSelectedMonth(index + 1); setShowMonthPicker(false); }}
+                        className={`px-2 py-2 rounded-lg text-[10px] font-bold ${
+                          selectedMonth === index + 1 ? 'bg-[#f74603] text-white' : 'text-white/50 hover:bg-white/5 hover:text-white'
+                        }`}
                       >
-                        Mês Atual
+                        {month.slice(0, 3)}
                       </button>
-                    </div>
-
-                    {/* Year controls */}
-                    <div className="flex items-center justify-between mb-2">
-                      <button
-                        onClick={() => setSelectedYear(selectedYear - 1)}
-                        className="p-1 rounded-lg text-[#a7a7a7] hover:bg-white/10 text-xs"
-                      >
-                        ◀
-                      </button>
-                      <span className="text-xs font-bold text-white">
-                        {selectedYear}
-                      </span>
-                      <button
-                        onClick={() => setSelectedYear(selectedYear + 1)}
-                        className="p-1 rounded-lg text-[#a7a7a7] hover:bg-white/10 text-xs"
-                      >
-                        ▶
-                      </button>
-                    </div>
-
-                    {/* Months Grid */}
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {months.map((m, idx) => {
-                        const isCurrent = selectedMonth === idx + 1;
-                        return (
-                          <button
-                            key={m}
-                            onClick={() => {
-                              setSelectedMonth(idx + 1);
-                              setShowMonthPicker(false);
-                            }}
-                            className={`py-1.5 px-2 rounded-xl text-xs font-semibold text-center transition-all ${
-                              isCurrent
-                                ? 'bg-[#f74603] text-white glow-orange-sm'
-                                : 'text-[#d9d9d9] hover:bg-white/10'
-                            }`}
-                          >
-                            {m.slice(0, 3)}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    ))}
                   </div>
-                </>
+                  <button onClick={() => { goToCurrentMonth(); setShowMonthPicker(false); }} className="w-full mt-2 py-2 rounded-lg bg-white/5 text-[10px] font-bold text-white/60 hover:text-white">
+                    Ir para este mês
+                  </button>
+                </div>
               )}
             </div>
 
-            {/* Quick Add Button */}
-            <button
-              onClick={onOpenQuickAdd}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-[#f74603] hover:bg-[#e85002] active:scale-95 text-white text-xs font-bold shadow-md glow-orange-sm transition-all"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span className="hidden sm:inline">Lançamento</span>
-            </button>
-
-            {/* Notifications Bell */}
-            <div className="relative">
-              <button
-                onClick={() => setShowAlertsPopover(!showAlertsPopover)}
-                className="relative p-2 rounded-2xl text-[#d9d9d9] hover:bg-white/10 border border-white/5 transition-colors"
-                title="Alertas e Notificações"
-              >
-                <Bell className="w-4 h-4" />
-                {unreadAlertsCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-[#f74603] ring-2 ring-[#09090b] animate-pulse" />
-                )}
-              </button>
-
-              {showAlertsPopover && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowAlertsPopover(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-80 max-w-[90vw] p-3.5 bg-[#141112] rounded-3xl shadow-2xl border border-white/15 z-50 backdrop-blur-xl">
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
-                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-[#f74603]" />
-                        Alertas Financeiros
-                      </span>
-                      <button
-                        onClick={() => setShowAlertsPopover(false)}
-                        className="text-[#a7a7a7] hover:text-white"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {alerts.length === 0 ? (
-                      <p className="text-xs text-[#a7a7a7] py-3 text-center">
-                        Tudo em dia! Nenhum alerta pendente no momento.
-                      </p>
-                    ) : (
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {alerts.map((al) => (
-                          <div
-                            key={al.id}
-                            className={`p-3 rounded-2xl text-xs border transition-colors ${
-                              al.type === 'celebration'
-                                ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-                                : al.type === 'warning'
-                                ? 'bg-[#55100d]/40 border-rose-500/30 text-rose-300'
-                                : 'bg-white/5 border-white/10 text-white'
-                            }`}
-                          >
-                            <p className="font-bold">{al.title}</p>
-                            <p className="text-[11px] opacity-90 mt-0.5">{al.message}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* PWA Install Button if available */}
-            {deferredPrompt && (
-              <button
-                onClick={onInstallPwa}
-                className="hidden md:flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium border border-white/10 transition-colors"
-                title="Instalar como App PWA"
-              >
-                <Download className="w-3.5 h-3.5 text-[#f74603]" />
-                <span>Instalar App</span>
-              </button>
+            {!isCloudConnected && (
+              <div className="hidden md:flex w-8 h-8 items-center justify-center rounded-xl bg-amber-500/10 text-amber-300" title="Dados salvos apenas neste dispositivo">
+                <CloudOff className="w-3.5 h-3.5" />
+              </div>
             )}
 
-            {/* User Profile Menu */}
             <div className="relative">
-              <button
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2 p-1.5 rounded-2xl hover:bg-white/10 border border-transparent hover:border-white/10 transition-all focus:outline-none"
-              >
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#55100d] to-[#f74603] text-white flex items-center justify-center text-xs font-bold uppercase shadow-sm">
-                  {user?.name ? user.name.charAt(0) : 'U'}
-                </div>
-                <span className="hidden sm:inline text-xs font-semibold text-white max-w-[100px] truncate">
-                  {user?.name || 'Perfil'}
-                </span>
-                <ChevronDown className="w-3 h-3 text-[#a7a7a7] hidden sm:inline" />
+              <button onClick={() => setShowAlerts(!showAlerts)} className="relative w-9 h-9 rounded-xl flex items-center justify-center text-white/50 hover:text-white hover:bg-white/5">
+                <Bell className="w-4 h-4" />
+                {unreadAlerts > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#f74603]" />}
               </button>
-
-              {showUserMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowUserMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-56 p-2 bg-[#141112] rounded-3xl shadow-2xl border border-white/15 z-50 animate-in fade-in zoom-in-95 backdrop-blur-xl">
-                    <div className="px-3 py-2 border-b border-white/10">
-                      <p className="text-xs font-bold text-white truncate">
-                        {user?.name}
-                      </p>
-                      <p className="text-[11px] text-[#a7a7a7] truncate">
-                        {user?.email}
-                      </p>
-                      <p className={`text-[10px] font-bold mt-1 flex items-center gap-1 ${isCloudConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
-                        {isCloudConnected ? '☁ Sincronizado com a nuvem' : (
-                          <>
-                            <CloudOff className="w-3 h-3" /> Somente local (sem backup)
-                          </>
-                        )}
-                      </p>
+              {showAlerts && (
+                <div className="absolute right-0 top-11 w-72 bg-[#141112] border border-white/10 rounded-2xl p-3 shadow-2xl">
+                  <p className="text-xs font-bold text-white px-1 pb-2">Alertas</p>
+                  {alerts.length === 0 ? <p className="text-[11px] text-white/35 px-1 py-5 text-center">Nenhum alerta.</p> : alerts.map((alert) => (
+                    <div key={alert.id} className="p-2.5 rounded-xl bg-white/5 mb-1.5">
+                      <p className="text-[11px] font-bold text-white">{alert.title}</p>
+                      <p className="text-[10px] text-white/45 mt-0.5">{alert.message}</p>
                     </div>
-
-                    <div className="py-1">
-                      <button
-                        onClick={() => {
-                          navigate('settings');
-                          setShowUserMenu(false);
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#d9d9d9] hover:bg-white/10 hover:text-white rounded-xl text-left transition-colors"
-                      >
-                        <Sliders className="w-3.5 h-3.5 text-[#f74603]" />
-                        Configurações & Renda
-                      </button>
-                    </div>
-
-                    <div className="pt-1 border-t border-white/10">
-                      <button
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          logout();
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-950/30 rounded-xl text-left transition-colors"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        Sair da Conta
-                      </button>
-                    </div>
-                  </div>
-                </>
+                  ))}
+                </div>
               )}
             </div>
+
+            <div className="relative">
+              <button onClick={() => setShowUserMenu(!showUserMenu)} className="w-9 h-9 rounded-xl bg-white/5 text-white flex items-center justify-center text-[10px] font-extrabold">
+                {user?.name?.slice(0, 2).toUpperCase() || 'EU'}
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-11 w-48 bg-[#141112] border border-white/10 rounded-2xl p-2 shadow-2xl">
+                  <button onClick={() => { navigate('settings'); setShowUserMenu(false); }} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/60 hover:bg-white/5 hover:text-white">Configurações</button>
+                  {deferredPrompt && onInstallPwa && (
+                    <button onClick={onInstallPwa} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/60 hover:bg-white/5 hover:text-white flex items-center gap-2">
+                      <Download className="w-3.5 h-3.5" /> Instalar aplicativo
+                    </button>
+                  )}
+                  <button onClick={logout} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 flex items-center gap-2">
+                    <LogOut className="w-3.5 h-3.5" /> Sair
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={onOpenQuickAdd}
+              className="w-10 h-10 rounded-xl bg-[#f74603] text-white flex items-center justify-center shadow-lg shadow-[#f74603]/20 hover:brightness-110 active:scale-95 transition-all"
+              title="Novo lançamento"
+            >
+              <Plus className="w-5 h-5 stroke-[3]" />
+            </button>
           </div>
         </div>
       </div>
     </header>
   );
 };
-
